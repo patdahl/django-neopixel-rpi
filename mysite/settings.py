@@ -69,6 +69,7 @@ TEMPLATES = [
     },
 ]
 
+ASGI_APPLICATION = "mysite.asgi.application"
 WSGI_APPLICATION = 'mysite.wsgi.application'
 
 
