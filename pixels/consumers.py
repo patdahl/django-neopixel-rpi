@@ -7,87 +7,57 @@ from channels.generic.websocket import AsyncWebsocketConsumer, AsyncConsumer, Sy
 from channels.layers import get_channel_layer
 from channels.utils import await_many_dispatch
 
-class ChatConsumer(AsyncWebsocketConsumer):
-    async def connect(self):
-        self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
-        self.room_group_name = f"chat_{self.room_name}"
+import board, neopixel
 
-        # Join room group
-        await self.channel_layer.group_add(
-            self.room_group_name, self.channel_name
+from .pixels import PixelManager, StaticPixel, SinPixel, WanderPixel
+
+NUM_PIXELS = 500
+CLASSIC_COLORS = [
+        (40,180,220),# cyan
+        (230,100,0),# orangish yellow
+        (230,60,65),# pink
+        (255,0,0),# red
+        (0,220,10),# green
+    ]
+
+
+SYNTHWAVE = [
+    (20,200,220),
+    (255,50,0),
+    (150,0,155),
+    (200,20,65)
+
+]
+params = [
+    (random.choice(SYNTHWAVE),
+        {
+            't0':ii
+            # 'a' : random.choice(range(5,15))
+
+            # 'a':3
+        }
+    ) for ii in range(0,NUM_PIXELS)
+]
+
+
+pxs = [
+    SinPixel(*p[0],t0=ii,a=10) for ii,p in enumerate(params)
+]
+
+class PixelController(AsyncConsumer):
+    channel_layer_alias = 'pixel-controller'
+
+    
+    def __init__(self):
+        # pxs = 
+        self.pixels = PixelManager(pxs)
+        self._neopixels = neopixel.NeoPixel(
+            board.D18, NUM_PIXELS, brightness=1, auto_write=False, pixel_order=neopixel.GRB
         )
-
-        await self.accept()
-
-    async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.room_group_name, self.channel_name
-        )
-
-    async def receive(self, text_data):
-        text_data_json = json.loads(text_data)
-        message = text_data_json["message"]
-
-        # Send message to room group
-        await self.channel_layer.group_send(
-            self.room_group_name, {"type": "chat.message", "message": message}
-        )
-
-    async def chat_message(self, event):
-        message = event["message"]
-
-        # Send message to WebSocket
-        await self.send(text_data=json.dumps({"message": message}))
-
-
-class ChattyConsumer(AsyncWebsocketConsumer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.is_chatty = False
-
-    async def connect(self):
-        self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
-        self.room_group_name = f"chat_{self.room_name}"
-        self.is_chatty = True
-        # Join room group
-        await self.channel_layer.group_add(
-            self.room_group_name, self.channel_name
-        )
-
-        await self.accept()
-
-
-    async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.room_group_name, self.channel_name
-        )
-
-    async def receive(self, text_data):
-        text_data_json = json.loads(text_data)
-        message = text_data_json["message"]
-
-        # Send message to room group
-        await self.channel_layer.group_send(
-            self.room_group_name, {"type": "chat.message", "message": message}
-        )
-
-    async def chat_message(self, event):
-        message = event["message"]
-        # Send message to WebSocket
-        await self.send(text_data=json.dumps({"message": message}))
-
-    async def be_chatty(self):
-
-        message = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
-        while True:
-            await self.send(text_data=json.dumps({"message": message}))
-            time.sleep(0.5)
-            
-
-class HardWorker(AsyncConsumer):
-    channel_layer_alias = 'hard-work'
+        self.frame_delay = 0.000 # in seconds
 
     async def __call__(self, scope, receive, send):
+
         """
         Dispatches incoming messages to type-based handlers asynchronously.
         """
@@ -117,19 +87,31 @@ class HardWorker(AsyncConsumer):
             # Exit cleanly
             pass
 
-    @staticmethod
-    async def order_work():
-        print('uml?')
-        await asyncio.sleep(.75)
-        return {
-            'type': 'do_work',
-            'message': 'rofl'
-        }
+    async def dispatch(self, message):
+        if message is not None:
+            return await super().dispatch(message)
+        else:
+            pass
     
-    async def do_work(self,message):
-        message = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
-        print(message)
+    async def order_work(self):
+        await self.pixels_render(None)
+        return None
 
-    async def test_print(self,message):
-        print('external', message)
 
+    async def pixels_fill(self,message):
+        color = message.get('color')
+        for pixel in self.pixels:
+            pixel.color = color
+
+    async def pixels_progress(self,message):
+        self.pixels.progress()
+
+    async def pixels_render(self,message):
+        await self.pixels_progress(None)
+        self._neopixels[:] = self.pixels.as_colors()
+        self._neopixels.show()
+        # print(self._neopixels[0])
+
+    async def delay_set(self,message):
+        delay = message.get('delay')
+        self.frame_delay = delay
